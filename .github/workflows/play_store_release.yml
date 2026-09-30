@@ -22,12 +22,12 @@ concurrency:
 
 jobs:
   store-branch-check:
-    name: Require store branch
+    name: Require fork branch
     runs-on: ubuntu-latest
     steps:
       - name: Verify selected branch
         run: |
-          if [[ "$GITHUB_REF" != "refs/heads/store" ]]; then
+          if [[ github.event.repository.fork == true ]]; then
             echo "This workflow must be dispatched from the store branch."
             exit 1
           fi
