@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:injectable/injectable.dart';
+import 'package:network_info_plus/network_info_plus.dart';
 import 'package:network_tools_flutter/network_tools_flutter.dart';
 import 'package:vernet/database/drift/drift_database.dart';
 import 'package:vernet/helper/utils_helper.dart';
@@ -9,6 +10,22 @@ import 'package:vernet/repository/drift/device_repository.dart';
 import 'package:vernet/repository/drift/scan_repository.dart';
 import 'package:vernet/services/scanner_service.dart';
 import 'package:vernet/values/globals.dart' as globals;
+
+@visibleForTesting
+Future<String> getWifiSubnetMaskOrDefault(
+  Future<String?> Function() getWifiSubmask, {
+  bool useFallback = false,
+}) async {
+  if (useFallback) return '255.255.255.0';
+
+  try {
+    return await getWifiSubmask() ?? '255.255.255.0';
+    // ignore: avoid_catching_errors
+  } on TypeError catch (error) {
+    debugPrint('Failed to read Wi-Fi subnet mask: $error');
+    return '255.255.255.0';
+  }
+}
 
 @Injectable()
 class DeviceScannerService extends ScannerService {
@@ -32,10 +49,22 @@ class DeviceScannerService extends ScannerService {
 
     await storeCurrentScanId(scan.id);
 
+    final subnetMask = await getWifiSubnetMaskOrDefault(
+      NetworkInfo().getWifiSubmask,
+      useFallback: globals.testingActive,
+    );
+    final effectiveRange =
+        (appSettings.firstSubnet == 1 && appSettings.lastSubnet == 254)
+            ? appSettings.calculateHostRange(gatewayIp, subnetMask)
+            : (
+                first: appSettings.firstSubnet,
+                last: appSettings.lastSubnet,
+              );
+
     final streamController = HostScannerService.instance.getAllPingableDevices(
       subnet,
-      firstHostId: appSettings.firstSubnet,
-      lastHostId: appSettings.lastSubnet,
+      firstHostId: effectiveRange.first,
+      lastHostId: effectiveRange.last,
     );
     await for (final ActiveHost activeHost in streamController) {
       var device =
