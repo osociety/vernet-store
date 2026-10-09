@@ -1,10 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
-import 'package:in_app_review/in_app_review.dart';
 import 'package:network_tools_flutter/network_tools_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -131,31 +129,12 @@ class _HomePageState extends State<TabBarPage> {
     setState(() {
       _currentIndex = index;
     });
-    if (index == 1) {
-      unawaited(_requestReview());
-    }
   }
 
   @override
   void initState() {
     super.initState();
     checkForUpdates(context);
-  }
-
-  Future<void> _requestReview() async {
-    // Enable iOS after the Apple Store review flow is configured.
-    if (defaultTargetPlatform != TargetPlatform.android) {
-      return;
-    }
-
-    try {
-      final inAppReview = InAppReview.instance;
-      if (await inAppReview.isAvailable()) {
-        await inAppReview.requestReview();
-      }
-    } catch (error) {
-      debugPrint('Unable to request in-app review: $error');
-    }
   }
 
   @override

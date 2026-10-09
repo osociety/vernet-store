@@ -15,10 +15,10 @@ dependencies:
   bloc: ^9.2.1
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.9
+  cupertino_icons: ^2.0.0
   dart_ping: ^9.0.1
   # Remove git url and use pub version once fix is available in source. 
-  drift: ^2.34.3
+  drift: ^2.35.1
   drift_flutter: ^0.3.1
   external_app_launcher: ^4.0.4
   flutter:
@@ -44,8 +44,6 @@ dependencies:
   google_mobile_ads: ^9.1.0
   # A composable, multi-platform, Future-based API for HTTP requests.
   http: ^1.6.0
-  # A Flutter plugin that lets you show a review pop up where users can leave a review
-  in_app_review: ^2.0.12
   # Convenient code generator for get_it
   injectable: ^3.0.0
   # An easy way to create a new isolate, keep it running and communicate with it.
@@ -57,7 +55,7 @@ dependencies:
   # Helps you discover open ports, devices on subnet and more.
   network_tools_flutter: ^3.0.4
   # Querying information about the application package, such as CFBundleVersion
-  package_info_plus: ^10.2.1
+  package_info_plus: ^10.2.2
   path: ^1.9.1
   path_provider: ^2.1.6
   # Allows you to display progress widgets based on percentage.
@@ -88,7 +86,7 @@ dev_dependencies:
   # A build system for Dart code generation and modular compilation.
   build_runner: ^2.16.1
 
-  drift_dev: ^2.34.5
+  drift_dev: ^2.35.1
   flutter_test:
     sdk: flutter
   # Code generator for unions/pattern-matching/copy.
@@ -99,7 +97,7 @@ dev_dependencies:
     sdk: flutter
   # Collection of lint rules for Dart and Flutter projects.
   json_serializable: ^6.13.1
-  lint: ^2.8.0
+  lint: ^2.14.0
   mocktail: ^1.0.5
 
 dependency_overrides:
