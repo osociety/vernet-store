@@ -11,7 +11,10 @@ import 'package:vernet/values/ad_unit_constants.dart';
 import 'package:vernet/values/keys.dart';
 
 class PingPage extends StatefulWidget {
-  const PingPage({super.key});
+  const PingPage({super.key, this.target = '', this.autostart = false});
+
+  final String target;
+  final bool autostart;
 
   @override
   _PingPageState createState() => _PingPageState();
@@ -22,6 +25,17 @@ class _PingPageState extends BasePage<PingPage> {
   Ping? _ping;
   PingSummary? _pingSummary;
   StreamSubscription<PingData>? _streamSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.target.isNotEmpty) {
+      textEditingController.text = widget.target;
+      if (widget.autostart) {
+        Future.delayed(Durations.short2, _startPinging);
+      }
+    }
+  }
 
   @override
   String fieldLabel() {

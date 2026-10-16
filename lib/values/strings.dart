@@ -39,4 +39,7 @@ class StringValue {
   static const String wakeOnLanPageTitle = 'Wake a device';
   static const String wakeOnLanEmptyPlaceholder =
       'No saved devices yet.\nEnter a MAC address and send a wake packet, or save a computer you use often.';
+  static const String deviceDetailPageTitle = 'Device details';
+  static const String signalStrength = 'Signal Strength';
+  static const String signalStrengthUnit = 'dBm';
 }

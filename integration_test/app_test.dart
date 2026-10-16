@@ -11,10 +11,12 @@ import 'package:vernet/injection.dart';
 import 'package:vernet/repository/notification_service.dart';
 import 'package:vernet/values/globals.dart' as globals;
 
+import 'device_detail/device_detail.dart' as device_detail_test;
 import 'dns/lookup/lookup.dart' as lookup_test;
 import 'dns/reverse_lookup/reverse_lookup.dart' as reverse_lookup;
 import 'home_page/home_page.dart' as home_page_test;
 import 'network_troubleshooting_test/ping_test/ping.dart' as ping_test;
+import 'server_checker/server_checker_test.dart' as server_checker_test;
 import 'settings/settings.dart' as settings_test;
 import 'settings/test_utils.dart';
 import 'test_port.dart';
@@ -55,6 +57,8 @@ void main() {
   settings_test.main();
   home_page_test.main();
   wake_on_lan_test.main();
+  server_checker_test.main();
+  device_detail_test.main();
 
   tearDownAll(() {
     server.close();
