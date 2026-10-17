@@ -141,7 +141,7 @@ class _PingPageState extends BasePage<PingPage> {
                   );
                 }
 
-                final PingEvent packet = _pingPackets[index];
+                final PingEvent packet = _pingPackets[index - 1];
                 String? leading;
                 String title = '';
                 final String trailing;
