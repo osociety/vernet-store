@@ -14,10 +14,54 @@ import 'package:vernet/pages/host_scan_page/host_scan_page.dart';
 import 'package:vernet/pages/ping_page/ping_page.dart';
 import 'package:vernet/pages/settings_page.dart';
 import 'package:vernet/repository/notification_service.dart';
+import 'package:vernet/services/impls/device_scanner_service.dart';
+import 'package:vernet/ui/network_troubleshoot_dialog.dart';
 import 'package:vernet/values/globals.dart' as globals;
 import 'package:vernet/values/keys.dart';
 
 import '../settings/test_utils.dart';
+
+class _FakeScannerService implements DeviceScannerService {
+  _FakeScannerService(this.devices);
+
+  final List<DeviceData> devices;
+  int startCalls = 0;
+
+  @override
+  Stream<DeviceData> startNewScan(
+    String subnet,
+    String ip,
+    String gatewayIp, {
+    void Function(double progress)? onProgress,
+  }) {
+    startCalls++;
+    onProgress?.call(100);
+    return Stream<DeviceData>.fromIterable(devices);
+  }
+
+  @override
+  Future<Stream<List<DeviceData>>> getOnGoingScan() async =>
+      const Stream<List<DeviceData>>.empty();
+
+  @override
+  Future<int> getCurrentDevicesCount() async => devices.length;
+}
+
+/// Swaps the real scanner for a fake so a test does not depend on the network
+/// the runner happens to be on, and restores the original afterwards. A real
+/// scan against an unreachable subnet keeps the indeterminate spinner on screen
+/// for minutes, which makes pumpAndSettle time out rather than fail loudly.
+Future<_FakeScannerService> _installFakeScanner(List<DeviceData> devices) async {
+  final originalScanner = getIt<DeviceScannerService>();
+  final fakeScanner = _FakeScannerService(devices);
+  await getIt.unregister<DeviceScannerService>();
+  getIt.registerSingleton<DeviceScannerService>(fakeScanner);
+  addTearDown(() async {
+    await getIt.unregister<DeviceScannerService>();
+    getIt.registerSingleton<DeviceScannerService>(originalScanner);
+  });
+  return fakeScanner;
+}
 
 void main() {
   globals.testingActive = true;
@@ -86,7 +130,7 @@ void main() {
       (MethodCall methodCall) async {
         if (methodCall.method == 'getAll') {
           return <String, dynamic>{
-            'appName': 'vernet',
+            'appName': 'Vernet',
             'packageName': 'org.fsociety.vernet',
             'version': '1.0.0',
             'buildNumber': '1',
@@ -99,6 +143,7 @@ void main() {
 
   group('HomePage Integration Tests', () {
     testWidgets('HomePage navigation to HostScanPage works', (tester) async {
+      await _installFakeScanner(const []);
       await tester.pumpWidget(const MyApp(true));
       await tester.pumpAndSettle();
 
@@ -112,6 +157,45 @@ void main() {
 
       // Verify HostScanPage is displayed
       expect(find.byType(HostScanPage), findsOneWidget);
+    });
+
+    testWidgets('scan runs to completion from the dashboard scan button',
+        (tester) async {
+      final fakeScanner = await _installFakeScanner([
+        const DeviceData(
+          id: 1,
+          internetAddress: '192.168.1.42',
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+          hostMake: 'Test host',
+          currentDeviceIp: '192.168.1.10',
+          gatewayIp: '192.168.1.1',
+          scanId: 0,
+        ),
+      ]);
+
+      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpAndSettle();
+
+      // The button sits below the fold on a 411x683 phone viewport and the
+      // home page is a ListView, so bring it on screen before tapping.
+      final devicesButton = find.byKey(WidgetKey.scanForDevicesButton.key);
+      await tester.ensureVisible(devicesButton);
+      await tester.pumpAndSettle();
+
+      // Whether the scan waits for the route transition is asserted in
+      // test/pages/host_scan_page/host_scan_page_test.dart, where the clock is
+      // fake. Here pump() blocks on real platform frames, so how much of the
+      // transition fits inside a pump depends on how fast the runner draws.
+      await tester.tap(devicesButton);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HostScanPage), findsOneWidget);
+
+      await TestUtils.waitForAnyWidget(
+        tester,
+        find.text('Scan complete - 1 device found'),
+      );
+      expect(fakeScanner.startCalls, 1);
     });
 
     testWidgets('HomePage refresh button works', (tester) async {
@@ -149,6 +233,63 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(SettingsPage), findsOneWidget);
+    });
+
+    testWidgets(
+        'HomePage displays connection path connectors and opens troubleshoot dialog',
+        (tester) async {
+      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpAndSettle();
+
+      // Verify connection path section is shown
+      expect(find.text('CONNECTION PATH'), findsOneWidget);
+
+      // Verify device to router connector exists
+      final deviceToRouterFinder =
+          find.byKey(WidgetKey.deviceToRouterConnector.key);
+      await TestUtils.waitForWidget(tester, deviceToRouterFinder);
+
+      // Verify router to internet connector exists
+      final routerToInternetFinder =
+          find.byKey(WidgetKey.routerToInternetConnector.key);
+      expect(routerToInternetFinder, findsOneWidget);
+
+      // Verify the connection status text is displayed
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Text &&
+              (widget.data == 'Connected' ||
+                  widget.data == 'Disconnected' ||
+                  widget.data == 'Checking…'),
+        ),
+        findsWidgets,
+      );
+
+      // Tap device to router connector to open dialog
+      await tester.tap(deviceToRouterFinder);
+      await tester.pumpAndSettle();
+
+      // Verify NetworkTroubleshootDialog appears
+      expect(find.byType(NetworkTroubleshootDialog), findsOneWidget);
+
+      // Close the dialog
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(NetworkTroubleshootDialog), findsNothing);
+
+      // Tap router to internet connector to open dialog
+      await tester.tap(routerToInternetFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(NetworkTroubleshootDialog), findsOneWidget);
+
+      // Close the dialog
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(NetworkTroubleshootDialog), findsNothing);
     });
   });
 }

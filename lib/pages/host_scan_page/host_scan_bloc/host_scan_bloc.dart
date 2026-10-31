@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:bloc/bloc.dart';
 import 'package:flutter/foundation.dart';
@@ -39,8 +40,65 @@ class HostScanBloc extends Bloc<HostScanEvent, HostScanState> {
   /// List of all ActiveHost devices that got found in the current scan
   final Set<DeviceData> devicesSet = {};
 
+  /// Scan progress in percent (0-100), fed by the scanner.
+  final ValueNotifier<double> progress = ValueNotifier<double>(0);
+  bool _progressDisposed = false;
+
   /// mDNS for each ip
   final Map<String, MdnsInfo> mDnsDevices = {};
+
+  @override
+  Future<void> close() async {
+    await super.close();
+    if (_progressDisposed) return;
+    _progressDisposed = true;
+    progress.dispose();
+  }
+
+  /// Progress can keep arriving after the page is gone; that must never throw
+  /// inside the scan, which would abort it.
+  void _setProgress(double value) {
+    if (_progressDisposed) return;
+    progress.value = value;
+  }
+
+  /// Adds a device or replaces the existing row with the same id in place, so
+  /// lazily resolved details update the list without duplicating or reordering.
+  void _upsertDevice(DeviceData device) {
+    final ordered = devicesSet.toList();
+    final index = ordered.indexWhere((existing) => existing.id == device.id);
+    if (index == -1) {
+      devicesSet.add(device);
+      return;
+    }
+    ordered[index] = device;
+    devicesSet
+      ..clear()
+      ..addAll(ordered);
+  }
+
+  /// The /24 prefix of every non-loopback IPv4 interface, used to tell a live
+  /// network report from a stale one.
+  static Future<Set<String>> _localInterfaceSubnets() async {
+    final interfaces = await NetworkInterface.list(
+      type: InternetAddressType.IPv4,
+    );
+    return {
+      for (final interface in interfaces)
+        for (final address in interface.addresses)
+          if (address.address.contains('.'))
+            address.address.substring(0, address.address.lastIndexOf('.')),
+    };
+  }
+
+  /// True when [candidate] sits on a subnet this device actually has, or when
+  /// no interface could be enumerated and there is nothing to check against.
+  static bool _onKnownSubnet(String candidate, Set<String> knownSubnets) {
+    if (knownSubnets.isEmpty) return true;
+    final lastDot = candidate.lastIndexOf('.');
+    return lastDot > 0 &&
+        knownSubnets.contains(candidate.substring(0, lastDot));
+  }
 
   Future<void> _initialized(
     Initialized event,
@@ -58,28 +116,47 @@ class HostScanBloc extends Bloc<HostScanEvent, HostScanState> {
     }
 
     final interface = await NetInterface.localInterface();
-    ip = (await info.getWifiIP()) ?? interface?.ipAddress;
+    final wifiIp = await info.getWifiIP();
     debugPrint(
       'Local Network Id: ${interface?.networkId} and ip: ${interface?.ipAddress}',
     );
+
+    // network_info_plus keeps reporting the last Wi-Fi network it saw even after
+    // the device has left it: the Android emulator answers 192.168.1.x while
+    // sitting on 10.0.2.x, and a Mac joined to a hotspot does the same. Scanning
+    // such a subnet has no route, so every probe runs to its timeout and the
+    // scan looks hung. Accept a reported address only when a real interface is
+    // on that subnet.
+    final knownSubnets = await _localInterfaceSubnets();
+    ip = wifiIp != null && _onKnownSubnet(wifiIp, knownSubnets)
+        ? wifiIp
+        : interface?.ipAddress ?? wifiIp;
+
     if (appSettings.customSubnet.isNotEmpty) {
       gatewayIp = appSettings.customSubnet;
       debugPrint('Taking gatewayIp from appSettings: $gatewayIp');
-    } else if (wifiGatewayIP != null) {
-      gatewayIp = wifiGatewayIP;
-      debugPrint(
-        'Taking gatewayIp from NetworkInfo().getWifiGatewayIP(): $gatewayIp',
-      );
-    } else if (ip != null) {
-      // NetworkInfo().getWifiGatewayIP() is null on android 35, so fail-safe
-      // to NetworkInfo().getWifiIP()
-      gatewayIp = ip;
-      debugPrint('Taking gatewayIp from NetworkInfo().getWifiIP(): $gatewayIp');
-    } else if (interface != null) {
-      gatewayIp = interface.ipAddress;
-      debugPrint(
-        'Taking gatewayIp from NetInterface.localInterface(): $gatewayIp',
-      );
+    } else {
+      // getWifiGatewayIP() is null on android 35, so the device's own address is
+      // the fail-safe; only its subnet prefix is used from here on.
+      final detected = <String, String?>{
+        'NetworkInfo().getWifiGatewayIP()': wifiGatewayIP,
+        'NetworkInfo().getWifiIP()': wifiIp,
+        'NetInterface.localInterface()': interface?.ipAddress,
+      };
+      for (final source in detected.entries) {
+        final value = source.value;
+        if (value == null) continue;
+        if (!_onKnownSubnet(value, knownSubnets)) {
+          debugPrint(
+            'Ignoring ${source.key} $value: no local interface is on that '
+            'subnet (known: ${knownSubnets.join(', ')})',
+          );
+          continue;
+        }
+        gatewayIp = value;
+        debugPrint('Taking gatewayIp from ${source.key}: $gatewayIp');
+        break;
+      }
     }
     if (gatewayIp == null) {
       emit(const HostScanState.error());
@@ -105,24 +182,41 @@ class HostScanBloc extends Bloc<HostScanEvent, HostScanState> {
     debugPrint(
       'Starting new scan with subnet: $subnet, ip: $ip, gatewayIp: $gatewayIp',
     );
+    _setProgress(0);
 
-    final deviceStream =
-        getIt<DeviceScannerService>().startNewScan(subnet!, ip!, gatewayIp!);
-    await for (final DeviceData device in deviceStream) {
-      devicesSet.add(device);
-      emit(const HostScanState.loadInProgress());
-      emit(HostScanState.foundNewDevice(devicesSet));
+    try {
+      final deviceStream = getIt<DeviceScannerService>().startNewScan(
+        subnet!,
+        ip!,
+        gatewayIp!,
+        onProgress: _setProgress,
+      );
+      await for (final DeviceData device in deviceStream) {
+        _upsertDevice(device);
+        if (!emit.isDone) {
+          emit(HostScanState.foundNewDevice(Set<DeviceData>.of(devicesSet)));
+        }
+      }
+    } catch (error) {
+      // A failed or crashed scan must not leave the UI (or the stored scan)
+      // waiting forever.
+      final detail = error is HostScanException ? ' (${error.kind})' : '';
+      debugPrint('Host scan failed$detail: $error');
+      if (!emit.isDone) emit(const HostScanState.loadFailure());
+      return;
     }
+    _setProgress(100);
     debugPrint(
       'Testing mode enabled ${globals.testingActive}',
     );
 
-    if (!globals.testingActive) {
-      // Because notification is not working in test mode in github actions
-      await NotificationService.showNotificationWithActions();
-    }
+    await NotificationService.showNotificationWithActions(
+      deviceCount: devicesSet.length,
+    );
 
-    emit(HostScanState.loadSuccess(devicesSet));
+    if (!emit.isDone) {
+      emit(HostScanState.loadSuccess(Set<DeviceData>.of(devicesSet)));
+    }
   }
 
   Future<void> _loadScanAndShowResults(
@@ -130,14 +224,16 @@ class HostScanBloc extends Bloc<HostScanEvent, HostScanState> {
     Emitter<HostScanState> emit,
   ) async {
     emit(const HostScanState.loadInProgress());
+    _setProgress(0);
 
     final deviceStream = await getIt<DeviceScannerService>().getOnGoingScan();
     // guard against emitting after handler completion by checking emit.isDone
     deviceStream.listen((devices) {
       if (!emit.isDone) {
-        devicesSet.addAll(devices);
-        emit(const HostScanState.loadInProgress());
-        emit(HostScanState.foundNewDevice(devicesSet));
+        for (final device in devices) {
+          _upsertDevice(device);
+        }
+        emit(HostScanState.foundNewDevice(Set<DeviceData>.of(devicesSet)));
       }
     });
 
@@ -156,8 +252,9 @@ class HostScanBloc extends Bloc<HostScanEvent, HostScanState> {
         await for (final List<ScanData> scanList in scanStream) {
           final scan = scanList.first;
           if (scan.onGoing == false) {
+            _setProgress(100);
             if (!emit.isDone) {
-              emit(HostScanState.loadSuccess(devicesSet));
+              emit(HostScanState.loadSuccess(Set<DeviceData>.of(devicesSet)));
             }
             break;
           }
@@ -173,7 +270,8 @@ class HostScanBloc extends Bloc<HostScanEvent, HostScanState> {
     // emission above covers the normal app flow, but tests and some platform
     // configurations may not register a ScanRepository or provide a scan id.
     if (!emit.isDone) {
-      emit(HostScanState.loadSuccess(devicesSet));
+      _setProgress(100);
+      emit(HostScanState.loadSuccess(Set<DeviceData>.of(devicesSet)));
     }
   }
 }

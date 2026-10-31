@@ -19,6 +19,7 @@ enum WidgetKey implements Comparable<WidgetKey> {
   veryShortPortChip('veryShortPortChip'),
   runScanOnStartup('runScanOnStartup'),
   rescanIconButton('rescanIconButton'),
+  scanHistoryIconButton('scanHistoryIconButton'),
   changeThemeTile('changeThemeTile'),
   inAppInternetSwitch('inAppInternetSwitch'),
   checkForUpdatesButton('checkForUpdatesButton'),
@@ -74,7 +75,9 @@ enum WidgetKey implements Comparable<WidgetKey> {
   deviceDetailPortScanButton('deviceDetailPortScanButton'),
   deviceDetailQuickScanButton('deviceDetailQuickScanButton'),
   deviceDetailPingButton('deviceDetailPingButton'),
-  deviceDetailWolButton('deviceDetailWolButton');
+  deviceDetailWolButton('deviceDetailWolButton'),
+  deviceToRouterConnector('deviceToRouterConnector'),
+  routerToInternetConnector('routerToInternetConnector');
 
   const WidgetKey(this.value);
   final String value;

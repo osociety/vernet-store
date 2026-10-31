@@ -12,6 +12,8 @@ import 'package:sidebarx/sidebarx.dart';
 import 'package:speed_test_dart/classes/settings.dart';
 import 'package:speed_test_dart/speed_test_dart.dart';
 import 'package:vernet/api/update_checker.dart';
+import 'package:vernet/database/database_service.dart';
+import 'package:vernet/database/drift/drift_database.dart';
 import 'package:vernet/helper/app_settings.dart';
 import 'package:vernet/helper/consent_loader.dart';
 import 'package:vernet/injection.dart';
@@ -39,9 +41,17 @@ Future<void> main() async {
 
   final binding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: binding);
-
-  final appDocDirectory = await getApplicationDocumentsDirectory();
-  await configureNetworkToolsFlutter(appDocDirectory.path, rebuildData: true);
+  try {
+    final appDocDirectory = await getApplicationDocumentsDirectory();
+    // ARP data is built once and refreshed per scan, so there is no need to
+    // wipe it on every launch. Vendor names are not displayed by the app.
+    await configureNetworkToolsFlutter(
+      appDocDirectory.path,
+      buildVendorTable: false,
+    );
+  } catch (e, st) {
+    debugPrint('Network tools init failed: $e\n$st');
+  }
 
   final bool allowed = await ConsentLoader.isConsentPageShown();
   await appSettings.load();
@@ -53,6 +63,17 @@ Future<void> main() async {
 
   runApp(MyApp(allowed));
   FlutterNativeSplash.remove();
+  unawaited(_warmUpDatabase());
+}
+
+/// Opens the local database while the first screen is shown, so the first scan
+/// does not pay the open cost inside its page transition.
+Future<void> _warmUpDatabase() async {
+  try {
+    await getIt<DatabaseService<AppDatabase>>().open();
+  } catch (error) {
+    debugPrint('Database warm-up failed: $error');
+  }
 }
 
 class MyApp extends StatefulWidget {
@@ -70,6 +91,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   DarkThemeProvider themeChangeProvider = DarkThemeProvider();
+  StreamSubscription<String?>? _notificationTapSubscription;
 
   @override
   void initState() {
@@ -78,7 +100,26 @@ class _MyAppState extends State<MyApp> {
     if (!globals.testingActive) {
       NotificationService.grantPermissions();
     }
+    _notificationTapSubscription =
+        NotificationService.selectNotificationStream.stream
+            .listen(_openScanFromNotification);
     getCurrentAppTheme();
+  }
+
+  @override
+  void dispose() {
+    _notificationTapSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _openScanFromNotification(String? payload) {
+    if (payload != NotificationService.hostScanPayload) {
+      return;
+    }
+    MyApp.navigatorKey.currentState?.pushNamedAndRemoveUntil(
+      '/hostscan',
+      ModalRoute.withName('/'),
+    );
   }
 
   Future<void> getCurrentAppTheme() async {
@@ -370,30 +411,34 @@ class _HomePageState extends State<TabBarPage> {
               },
               child: SizedBox(
                 height: 44,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final showLabel = isExtended && constraints.maxWidth >= 200;
-                    return Row(
-                      mainAxisAlignment: showLabel
-                          ? MainAxisAlignment.start
-                          : MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.settings, size: 20, color: foreground),
-                        if (showLabel) ...[
-                          const SizedBox(width: 14),
-                          Text(
-                            'Settings',
-                            style: TextStyle(
-                              color: isSelected
-                                  ? foreground
-                                  : colors.onSurfaceVariant,
-                              fontWeight: isSelected ? FontWeight.w600 : null,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final showLabel =
+                          isExtended && constraints.maxWidth >= 200;
+                      return Row(
+                        mainAxisAlignment: showLabel
+                            ? MainAxisAlignment.start
+                            : MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.settings, size: 20, color: foreground),
+                          if (showLabel) ...[
+                            const SizedBox(width: 14),
+                            Text(
+                              'Settings',
+                              style: TextStyle(
+                                color: isSelected
+                                    ? foreground
+                                    : colors.onSurfaceVariant,
+                                fontWeight: isSelected ? FontWeight.w600 : null,
+                              ),
                             ),
-                          ),
+                          ],
                         ],
-                      ],
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
@@ -423,7 +468,10 @@ class _HomePageState extends State<TabBarPage> {
               : null,
           drawer: isCompact
               ? Drawer(
-                  child: _buildSidebar(context, showToggleButton: false),
+                  child: SafeArea(
+                    bottom: false,
+                    child: _buildSidebar(context, showToggleButton: false),
+                  ),
                 )
               : null,
           body: isCompact

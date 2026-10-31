@@ -19,28 +19,56 @@ import 'package:vernet/values/tooltip_messages.dart';
 class HostScanWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<HostScanBloc, HostScanState>(
+    return BlocConsumer<HostScanBloc, HostScanState>(
+      listenWhen: (previous, current) =>
+          previous is! LoadSuccess && current is LoadSuccess,
+      listener: (context, state) {
+        if (state is LoadSuccess) {
+          final deviceCount = state.activeHosts.length;
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Scan complete - ${_deviceCountLabel(deviceCount)} found',
+                ),
+              ),
+            );
+        }
+      },
       builder: (context, state) {
         return state.map(
-          initial: (_) => Container(),
+          initial: (_) => const Center(child: CircularProgressIndicator()),
           loadInProgress: (value) {
             return Center(
               child: Container(
                 margin: const EdgeInsets.all(30),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const CircularProgressIndicator(),
-                    const SizedBox(
-                      height: 30,
-                    ),
-                    Text(
-                      appSettings.gatewayIP.isNotEmpty
-                          ? 'Looking for devices connected through ${appSettings.gatewayIP}'
-                          : StringValue.loadingDevicesMessage,
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
+                child: ValueListenableBuilder<double>(
+                  valueListenable: context.read<HostScanBloc>().progress,
+                  builder: (context, progress, _) {
+                    final percent = progress.clamp(0, 100).toDouble();
+                    return Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(
+                          value: percent > 0 ? percent / 100 : null,
+                        ),
+                        const SizedBox(
+                          height: 30,
+                        ),
+                        Text(
+                          appSettings.gatewayIP.isNotEmpty
+                              ? 'Looking for devices connected through ${appSettings.gatewayIP}'
+                              : StringValue.loadingDevicesMessage,
+                          textAlign: TextAlign.center,
+                        ),
+                        if (percent > 0) ...[
+                          const SizedBox(height: 8),
+                          Text('${percent.round()}% scanned'),
+                        ],
+                      ],
+                    );
+                  },
                 ),
               ),
             );
@@ -72,7 +100,10 @@ class HostScanWidget extends StatelessWidget {
       children: [
         AdaptiveListTile(
           title: Text(
-            "Found ${activeHostList.length} connected devices",
+            loading
+                ? 'Found ${activeHostList.length} connected devices so far'
+                : 'Scan complete - '
+                    '${_deviceCountLabel(activeHostList.length)} found',
             textAlign: TextAlign.center,
           ),
           trailing: loading
@@ -87,6 +118,35 @@ class HostScanWidget extends StatelessWidget {
                   icon: const Icon(Icons.replay),
                 ),
         ),
+        if (loading)
+          ValueListenableBuilder<double>(
+            valueListenable: context.read<HostScanBloc>().progress,
+            builder: (context, progress, _) {
+              final value = (progress / 100).clamp(0.0, 1.0);
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: value > 0 ? value : null,
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Text(
+                      value > 0
+                          ? 'Scanning ${(value * 100).round()}%'
+                          : 'Starting scan...',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         Expanded(
           child: ListView.builder(
             itemCount: activeHostList.length + 1,
@@ -177,3 +237,6 @@ class HostScanWidget extends StatelessWidget {
     );
   }
 }
+
+String _deviceCountLabel(int count) =>
+    '$count ${count == 1 ? 'device' : 'devices'}';

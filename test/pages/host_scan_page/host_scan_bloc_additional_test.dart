@@ -16,7 +16,12 @@ class FakeScannerService implements DeviceScannerService {
       StreamController<List<DeviceData>>();
 
   @override
-  Stream<DeviceData> startNewScan(String subnet, String ip, String gatewayIp) {
+  Stream<DeviceData> startNewScan(
+    String subnet,
+    String ip,
+    String gatewayIp, {
+    void Function(double progress)? onProgress,
+  }) {
     return Stream.fromIterable(devices);
   }
 
@@ -42,6 +47,10 @@ class FakeScanRepository implements ScanRepository {
 
   @override
   Future<List<ScanData>> getList() async => throw UnimplementedError();
+
+  @override
+  Future<List<ScanData>> getRecentScans({int limit = 50}) async =>
+      throw UnimplementedError();
 
   @override
   Future<ScanData?> get(int id) async => throw UnimplementedError();

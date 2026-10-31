@@ -6,6 +6,14 @@ inputs:
     description: Java version to install, or empty to skip Java setup.
     required: false
     default: ''
+  architecture:
+    description: x64 or arm64. Empty means detect from the runner.
+    required: false
+    default: ''
+  arm64_flutter_ref:
+    description: Branch or tag of flutter/flutter to clone on Linux and Windows arm64.
+    required: false
+    default: master
 
 runs:
   using: composite
@@ -17,11 +25,48 @@ runs:
         distribution: temurin
         java-version: ${{ inputs.java_version }}
 
+    - name: Resolve architecture
+      id: arch
+      shell: bash
+      env:
+        INPUT_ARCH: ${{ inputs.architecture }}
+        RUNNER_ARCH_NAME: ${{ runner.arch }}
+      run: |
+        arch="${INPUT_ARCH:-$RUNNER_ARCH_NAME}"
+        arch="$(echo "$arch" | tr '[:upper:]' '[:lower:]')"
+        case "$arch" in
+          x64|x86_64|amd64) arch=x64 ;;
+          arm64|aarch64)    arch=arm64 ;;
+          *) echo "Unsupported architecture: $arch"; exit 1 ;;
+        esac
+        echo "value=$arch" >> "$GITHUB_OUTPUT"
+
+    # x64 (any OS) and macOS (any arch) use the action
     - name: Setup Flutter
-      uses: subosito/flutter-action@v2.18.0
+      if: ${{ steps.arch.outputs.value == 'x64' || runner.os == 'macOS' }}
+      uses: subosito/flutter-action@v2.23.0
       with:
         channel: stable
+        architecture: ${{ steps.arch.outputs.value }}
         cache: true
+
+    # arm64 on Linux and Windows: clone from git
+    - name: Clone Flutter (arm64)
+      if: ${{ steps.arch.outputs.value == 'arm64' && runner.os != 'macOS' }}
+      shell: bash
+      env:
+        FLUTTER_REF: ${{ inputs.arm64_flutter_ref }}
+      run: |
+        git clone --depth 1 --branch "$FLUTTER_REF" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+        echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+    - name: Flutter doctor (arm64)
+      if: ${{ steps.arch.outputs.value == 'arm64' && runner.os != 'macOS' }}
+      shell: bash
+      run: |
+        flutter config --no-analytics
+        flutter doctor -v
+        flutter --version
 
     - name: Download dependencies
       run: flutter pub get

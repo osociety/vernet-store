@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:vernet/injection.dart';
 import 'package:vernet/pages/host_scan_page/host_scan_bloc/host_scan_bloc.dart';
+import 'package:vernet/pages/host_scan_page/scan_history/scan_history_page.dart';
 import 'package:vernet/pages/host_scan_page/widgets/host_scan_widget.dart';
+import 'package:vernet/values/keys.dart';
 import 'package:vernet/values/strings.dart';
 
 class HostScanPage extends StatelessWidget {
@@ -11,12 +16,113 @@ class HostScanPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text(StringValue.hostScanPageTitle),
+        actions: [
+          IconButton(
+            key: WidgetKey.scanHistoryIconButton.key,
+            tooltip: StringValue.previousScansTitle,
+            icon: const Icon(Icons.history),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (context) => const ScanHistoryPage(),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: BlocProvider(
-        create: (context) =>
-            getIt<HostScanBloc>()..add(const HostScanEvent.initialized()),
-        child: HostScanWidget(),
+        create: (context) => getIt<HostScanBloc>(),
+        child: _ScanStartGate(child: HostScanWidget()),
       ),
     );
   }
+}
+
+/// Starts the scan once the page transition has finished.
+///
+/// Scan startup (database write, network tools isolate, mDNS) costs several
+/// frames; running it while the route animates makes the push stutter.
+class _ScanStartGate extends StatefulWidget {
+  const _ScanStartGate({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_ScanStartGate> createState() => _ScanStartGateState();
+}
+
+class _ScanStartGateState extends State<_ScanStartGate> {
+  /// Frames stop arriving when the window is occluded or the platform pauses
+  /// vsync, so the scan cannot depend on the transition reporting completion.
+  static const Duration _fallbackDelay = Duration(seconds: 1);
+
+  Animation<double>? _animation;
+  Timer? _fallback;
+  bool _started = false;
+  bool _checkScheduled = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _fallback ??= Timer(_fallbackDelay, _start);
+    _scheduleCheck();
+  }
+
+  void _scheduleCheck() {
+    if (_started || _checkScheduled) return;
+    _checkScheduled = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _checkScheduled = false;
+      _check();
+    });
+    // The route may still be offstage with no animation frame pending.
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
+  void _check() {
+    if (_started || !mounted) return;
+    final route = ModalRoute.of(context);
+    final animation = route?.animation;
+    // The first frame of a push builds the route offstage with the animation
+    // pinned at 1.0 (hero measurement); that is not the transition finishing.
+    if (route != null && route.offstage) {
+      _scheduleCheck();
+      return;
+    }
+    if (animation == null || animation.status == AnimationStatus.completed) {
+      _start();
+      return;
+    }
+    if (animation != _animation) {
+      _animation?.removeStatusListener(_handleStatus);
+      _animation = animation..addStatusListener(_handleStatus);
+    }
+  }
+
+  void _handleStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed) _start();
+  }
+
+  void _start() {
+    if (_started) return;
+    _started = true;
+    _fallback?.cancel();
+    _fallback = null;
+    _animation?.removeStatusListener(_handleStatus);
+    _animation = null;
+    if (!mounted) return;
+    context.read<HostScanBloc>().add(const HostScanEvent.initialized());
+  }
+
+  @override
+  void dispose() {
+    _fallback?.cancel();
+    _animation?.removeStatusListener(_handleStatus);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

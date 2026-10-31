@@ -1,0 +1,138 @@
+name: vernet
+title: Vernet - Know your network
+adopt-info: vernet
+summary: Know your network. Discover, scan & diagnose.
+description: |
+  Take control of your home or office network with Vernet — a free,
+  open-source toolkit that puts network insights in your hands.
+
+  Whether you're troubleshooting a slow connection, checking who's on
+  your Wi-Fi, or making sure your devices are reachable, Vernet gives
+  you clear, easy-to-understand answers — no technical background required.
+
+  What's on my network?
+  See every device connected to your local Wi-Fi, along with their IP
+  addresses and names. Know exactly who and what is sharing your connection.
+
+  Is my internet working?
+  Run a ping test to check if a website or device is responding. Spot
+  drops and delays in seconds.
+
+  How fast is my connection?
+  Test your real download and upload speed with the built-in speed test.
+  Get accurate results without leaving the app.
+
+  What services are exposed?
+  Scan a device for open ports to see which services are reachable —
+  helpful for understanding your home network's security posture.
+
+  What's behind this address?
+  Use built-in DNS tools to look up domain names, resolve IPs, and trace
+  how addresses are mapped on the internet.
+
+  Who is my internet provider?
+  View details about your ISP, including your public IP, location, and
+  connection type.
+
+  Free & open source
+  Vernet is free and open source. No tracking, no telemetry.
+  Support the project: https://ko-fi.com/op3nsoc13ty
+
+contact: https://github.com/osociety/vernet/issues
+donation: https://liberapay.com/OpenSociety/donate
+issues: https://github.com/osociety/vernet/issues
+source-code: https://github.com/osociety/vernet
+website: https://vernet-app.web.app/
+license: Apache-2.0
+icon: snap/gui/vernet.png
+
+confinement: strict
+base: core22
+grade: stable
+
+lint:
+  ignore:
+    - library:
+        - lib/*-linux-gnu/libcrypt.so.1
+        - lib/*-linux-gnu/libtirpc.so.3*
+        - lib/libsqlite3.so.0
+
+apps:
+  vernet:
+    command: vernet
+    desktop: meta/gui/vernet.desktop
+    extensions: [gnome]
+    environment:
+      LD_LIBRARY_PATH: $SNAP/lib:$LD_LIBRARY_PATH
+    plugs:
+      - network
+      - network-observe
+      - network-manager-observe
+      - desktop
+      - desktop-legacy
+      - x11
+      - wayland
+      - home
+
+parts:
+  vernet:
+    source: .
+    source-type: git
+    plugin: nil      
+    build-packages:
+      - clang
+      - cmake
+      - curl
+      - libgtk-3-dev
+      - ninja-build
+      - unzip
+      - xz-utils
+      - zip
+      - libsqlite3-dev
+    stage-packages:
+      - libsqlite3-dev
+      - libsqlite3-0
+      - net-tools
+
+    override-build: |
+      # 0. Take the snap version from pubspec.yaml (1.4.10+67 -> 1.4.10)
+      craftctl default
+      VERSION=$(grep -m1 '^version:' pubspec.yaml | sed 's/version:[[:space:]]*//' | cut -d+ -f1)
+      craftctl set version="$VERSION"
+
+      # 1. Detect target architecture dynamically
+      ARCH=$(uname -m)
+      if [ "$ARCH" = "aarch64" ]; then
+        FLUTTER_ARCH="arm64"
+        DEB_ARCH="aarch64-linux-gnu"
+      else
+        FLUTTER_ARCH="x64"
+        DEB_ARCH="x86_64-linux-gnu"
+      fi
+      
+      # 2. Setup the isolated Flutter SDK
+      rm -rf /root/parts/vernet/build/flutter-distro
+      git clone --depth 1 -b stable https://github.com/flutter/flutter.git /root/parts/vernet/build/flutter-distro
+      export PATH="/root/parts/vernet/build/flutter-distro/bin:/root/parts/vernet/build/flutter-distro/bin/cache/dart-sdk/bin:$PATH"
+      
+      # 3. Cache system tools & fetch pub dependencies
+      flutter precache --linux
+      flutter clean
+      flutter pub get
+      
+      # 4. Run code generation steps BEFORE compiling
+      dart run build_runner build --delete-conflicting-outputs
+      
+      # 5. Compile the native release bundle
+      flutter build linux --release --target lib/main.dart
+      
+      # 6. Create the internal library directory inside the build output bundle
+      BUNDLE_LIB_DIR="build/linux/$FLUTTER_ARCH/release/bundle/lib"
+      mkdir -p "$BUNDLE_LIB_DIR"
+      
+      # 7. Copy libsqlite3.so.0 — Dart's sqlite3 package calls dlopen("libsqlite3.so.0")
+      #    NOT the unversioned .so (which is only a dev symlink for compile-time linking)
+      cp /usr/lib/$DEB_ARCH/libsqlite3.so.0 "$BUNDLE_LIB_DIR/libsqlite3.so.0"
+      
+      # 8. Copy all production artifacts to the Snapcraft installation location
+      cp -r build/linux/$FLUTTER_ARCH/release/bundle/* $CRAFT_PART_INSTALL/
