@@ -1,21 +1,27 @@
+import 'dart:convert';
+
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vernet/database/database_service.dart';
 import 'package:vernet/database/drift/drift_database.dart';
 import 'package:vernet/helper/app_settings.dart';
-import 'package:vernet/injection.dart';
 import 'package:vernet/models/wifi_info.dart';
 import 'package:vernet/models/wifi_metrics.dart';
 import 'package:vernet/pages/home_page.dart';
 import 'package:vernet/pages/host_scan_page/scan_history/scan_history_page.dart';
+import 'package:vernet/pages/network_score/bloc/network_score_bloc.dart';
 import 'package:vernet/providers/dark_theme_provider.dart';
 import 'package:vernet/repository/drift/device_repository.dart';
 import 'package:vernet/repository/drift/scan_repository.dart';
+import 'package:vernet/repository/network_score_repository.dart';
 import 'package:vernet/services/network_connectivity_service.dart';
+import 'package:vernet/services/network_score_service.dart';
 import 'package:vernet/values/keys.dart';
 import 'package:vernet/values/strings.dart';
 
@@ -34,6 +40,31 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     AppSettings.instance.resetForTesting();
+
+    final db = AppDatabase(NativeDatabase.memory());
+    final databaseService = _InMemoryDatabaseService(db);
+    final scanRepository = ScanRepository(databaseService);
+    final deviceRepository = DeviceRepository(databaseService);
+    final networkScoreRepository = NetworkScoreRepository();
+    final networkScoreService = NetworkScoreService(
+      scanRepository: scanRepository,
+      deviceRepository: deviceRepository,
+      scoreRepository: networkScoreRepository,
+    );
+    final networkScoreBloc = NetworkScoreBloc(
+      scoreService: networkScoreService,
+      scoreRepository: networkScoreRepository,
+    );
+
+    GetIt.instance
+      ..registerSingleton<AppDatabase>(db)
+      ..registerSingleton<DatabaseService<AppDatabase>>(databaseService)
+      ..registerSingleton<ScanRepository>(scanRepository)
+      ..registerSingleton<DeviceRepository>(deviceRepository)
+      ..registerSingleton<NetworkScoreRepository>(networkScoreRepository)
+      ..registerSingleton<NetworkScoreService>(networkScoreService)
+      ..registerSingleton<NetworkScoreBloc>(networkScoreBloc);
+
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
       const MethodChannel('dev.fluttercommunity.plus/network_info'),
@@ -45,6 +76,13 @@ void main() {
         _ => null,
       },
     );
+  });
+
+  tearDown(() async {
+    if (GetIt.instance.isRegistered<AppDatabase>()) {
+      await GetIt.instance<AppDatabase>().close();
+    }
+    await GetIt.instance.reset();
   });
 
   Future<void> pumpHomePage(
@@ -104,9 +142,8 @@ void main() {
       expect(find.text('CONNECTION PATH'), findsOneWidget);
       expect(find.text('THIS DEVICE'), findsOneWidget);
       expect(find.text('WI-FI ROUTER'), findsOneWidget);
-      expect(find.text('INTERNET PROVIDER'), findsOneWidget);
+      expect(find.text('INTERNET'), findsOneWidget);
       expect(find.text('WI-FI CONNECTION'), findsOneWidget);
-      expect(find.text('INTERNET SERVICE'), findsOneWidget);
     });
 
     testWidgets('does not badge the gateway for live network values',
@@ -142,8 +179,7 @@ void main() {
       expect(find.text('CUSTOM'), findsWidgets);
     });
 
-    testWidgets(
-        'shows connection line status and opens detail dialog on click',
+    testWidgets('shows connection line status and opens detail dialog on click',
         (tester) async {
       final connectivityService = NetworkConnectivityService(
         pingProbe: (host) async => const Duration(milliseconds: 20),
@@ -340,22 +376,10 @@ void main() {
       expect(find.text('Check your connection'), findsNothing);
       expect(find.text('Website and address tools'), findsNothing);
       expect(find.byKey(const ValueKey('ping')), findsNothing);
-      expect(find.text('Internet lookups are off'), findsOneWidget);
+      expect(find.text('WI-FI CONNECTION'), findsOneWidget);
     });
 
     testWidgets('opens scan history from the Wi-Fi panel', (tester) async {
-      await getIt.reset();
-      final db = AppDatabase(NativeDatabase.memory());
-      final databaseService = _InMemoryDatabaseService(db);
-      getIt
-        ..registerSingleton<ScanRepository>(ScanRepository(databaseService))
-        ..registerSingleton<DeviceRepository>(
-            DeviceRepository(databaseService));
-      addTearDown(() async {
-        await getIt.reset();
-        await db.close();
-      });
-
       await pumpHomePage(tester, size: const Size(900, 800));
 
       expect(
@@ -371,32 +395,130 @@ void main() {
       expect(find.text(StringValue.previousScansTitle), findsOneWidget);
     });
 
-    testWidgets('keeps the mobile header left aligned', (tester) async {
+    testWidgets('hides inline header on mobile layout', (tester) async {
       await pumpHomePage(tester, size: const Size(390, 844));
 
-      final overview = tester.widget<Text>(find.text('NETWORK OVERVIEW'));
-      final title = tester.widget<Text>(find.text('Your network'));
-      expect(overview.textAlign, isNull);
-      expect(title.textAlign, isNull);
+      expect(find.text('NETWORK OVERVIEW'), findsNothing);
+      expect(find.text('Your network'), findsNothing);
     });
+  });
 
-    testWidgets('matches Wi-Fi and internet panel heights on desktop',
+  group('HomePage speed test card timestamp', () {
+    const speedSnapshotKey = 'networkScore.speedSnapshot';
+
+    void seedSpeedSnapshot({DateTime? timestamp}) {
+      SharedPreferences.setMockInitialValues({
+        speedSnapshotKey: jsonEncode({
+          'downloadMbps': 250.4,
+          'uploadMbps': 42.1,
+          'latencyMs': 12.0,
+          'timestamp': timestamp?.toIso8601String(),
+        }),
+      });
+    }
+
+    testWidgets('shows absolute test time left of the M-Lab credit',
         (tester) async {
+      final testedAt = DateTime.now().subtract(const Duration(days: 2));
+      seedSpeedSnapshot(timestamp: testedAt);
+
+      // Wide enough that the clock chip fits inline next to the title even
+      // with the square Ahem test glyphs.
       await pumpHomePage(tester, size: const Size(1100, 800));
 
-      final wifiPanel = find
-          .ancestor(
-            of: find.text('WI-FI CONNECTION'),
-            matching: find.byType(Container),
-          )
-          .first;
-      final ispPanel = find
-          .ancestor(
-            of: find.text('INTERNET SERVICE'),
-            matching: find.byType(Container),
-          )
-          .first;
-      expect(tester.getSize(wifiPanel).height, tester.getSize(ispPanel).height);
+      expect(find.text('SPEED TEST'), findsOneWidget);
+      final timeText = find.text(DateFormat('MMM d, h:mm a').format(testedAt));
+      expect(timeText, findsOneWidget);
+
+      // Timestamp sits next to the card title in the header row.
+      expect(
+        tester.getTopLeft(timeText).dx,
+        greaterThan(tester.getTopLeft(find.text('SPEED TEST')).dx),
+      );
+      expect(
+        tester.getTopLeft(timeText).dy,
+        lessThan(tester.getTopLeft(find.text('Download')).dy),
+      );
+      expect(find.byIcon(Icons.schedule), findsWidgets);
+
+      // The M-Lab credit stays right-aligned in its own attribution row.
+      expect(
+        tester.getTopRight(find.text('Powered by M-Lab')).dx,
+        greaterThan(tester.getTopRight(timeText).dx),
+      );
+
+      // The connection-path card shows its own fresh check time the same way.
+      expect(find.text('Just now'), findsWidgets);
+    });
+
+    testWidgets('shows relative age for recent results', (tester) async {
+      seedSpeedSnapshot(
+        timestamp: DateTime.now().subtract(const Duration(seconds: 30)),
+      );
+      await pumpHomePage(tester, size: const Size(900, 800));
+      // Both the speed card and the connection card just refreshed.
+      expect(find.text('Just now'), findsWidgets);
+
+      seedSpeedSnapshot(
+        timestamp: DateTime.now().subtract(const Duration(minutes: 45)),
+      );
+      await pumpHomePage(tester, size: const Size(900, 800));
+      expect(find.text('45m ago'), findsOneWidget);
+
+      seedSpeedSnapshot(
+        timestamp: DateTime.now().subtract(const Duration(hours: 3)),
+      );
+      await pumpHomePage(tester, size: const Size(900, 800));
+      expect(find.text('3h ago'), findsOneWidget);
+    });
+
+    testWidgets('omits the timestamp when the snapshot has no time',
+        (tester) async {
+      seedSpeedSnapshot();
+
+      await pumpHomePage(tester, size: const Size(900, 800));
+
+      expect(find.text('Last result'), findsNothing);
+      expect(find.text('Powered by M-Lab'), findsOneWidget);
+    });
+
+    testWidgets('blurs only the placeholder numbers when no result exists',
+        (tester) async {
+      await pumpHomePage(tester, size: const Size(900, 800));
+
+      expect(find.text('Start Speed Test'), findsOneWidget);
+      for (final placeholder in ['00.0 Mbps', '0.0 Mbps', '00 ms']) {
+        expect(find.text(placeholder), findsOneWidget);
+        expect(
+          find.ancestor(
+            of: find.text(placeholder),
+            matching: find.byType(ImageFiltered),
+          ),
+          findsOneWidget,
+        );
+      }
+
+      // Labels and icons stay crisp — only the numbers are blurred.
+      expect(
+        find.ancestor(
+          of: find.text('Download'),
+          matching: find.byType(ImageFiltered),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('does not blur the values when a past result exists',
+        (tester) async {
+      seedSpeedSnapshot(
+        timestamp: DateTime.now().subtract(const Duration(hours: 3)),
+      );
+
+      await pumpHomePage(tester, size: const Size(900, 800));
+
+      expect(find.text('250.4 Mbps'), findsOneWidget);
+      expect(find.text('42.1 Mbps'), findsOneWidget);
+      expect(find.byType(ImageFiltered), findsNothing);
     });
   });
 }

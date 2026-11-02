@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -8,9 +9,8 @@ import 'package:in_app_review/in_app_review.dart';
 import 'package:network_tools_flutter/network_tools_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences_android/shared_preferences_android.dart';
 import 'package:sidebarx/sidebarx.dart';
-import 'package:speed_test_dart/classes/settings.dart';
-import 'package:speed_test_dart/speed_test_dart.dart';
 import 'package:vernet/api/update_checker.dart';
 import 'package:vernet/database/database_service.dart';
 import 'package:vernet/database/drift/drift_database.dart';
@@ -21,7 +21,6 @@ import 'package:vernet/pages/dns/dns_page.dart';
 import 'package:vernet/pages/dns/reverse_dns_page.dart';
 import 'package:vernet/pages/home_page.dart';
 import 'package:vernet/pages/host_scan_page/host_scan_page.dart';
-import 'package:vernet/pages/isp_page/isp_page.dart';
 import 'package:vernet/pages/location_consent_page.dart';
 import 'package:vernet/pages/neighbor_discovery_page/neighbor_discovery_page.dart';
 import 'package:vernet/pages/network_troubleshoot/port_scan_page.dart';
@@ -32,7 +31,7 @@ import 'package:vernet/pages/subnet_calculator_page.dart';
 import 'package:vernet/pages/wake_on_lan_page/wake_on_lan_page.dart';
 import 'package:vernet/providers/dark_theme_provider.dart';
 import 'package:vernet/repository/notification_service.dart';
-import 'package:vernet/services/isp_lookup_service.dart';
+import 'package:vernet/ui/semantic_colors.dart';
 import 'package:vernet/values/globals.dart' as globals;
 
 AppSettings appSettings = AppSettings.instance;
@@ -41,6 +40,11 @@ Future<void> main() async {
 
   final binding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: binding);
+
+  if (Platform.isAndroid) {
+    SharedPreferencesAndroid.registerWith();
+  }
+
   try {
     final appDocDirectory = await getApplicationDocumentsDirectory();
     // ARP data is built once and refreshed per scan, so there is no need to
@@ -158,9 +162,7 @@ class _MyAppState extends State<MyApp> {
               }
             },
             title: 'Vernet',
-            theme: themeChangeProvider.darkTheme
-                ? ThemeData.dark()
-                : ThemeData.light(),
+            theme: createSemanticTheme(themeChangeProvider.darkTheme),
             home: homePage,
           );
         },
@@ -240,11 +242,6 @@ class _HomePageState extends State<TabBarPage> {
           icon: Icons.wifi_find,
           label: 'Scan your network',
           onTap: () => _selectPage(1),
-        ),
-        SidebarXItem(
-          icon: Icons.signal_cellular_alt,
-          label: 'Service Provider Details',
-          onTap: () => _selectPage(10),
         ),
         SidebarXItem(
           icon: Icons.trending_up,
@@ -494,7 +491,7 @@ class _HomePageState extends State<TabBarPage> {
   }
 
   String get _selectedPageTitle => switch (_currentIndex) {
-        0 => 'Home',
+        0 => 'Your network',
         1 => 'Scan your network',
         2 => 'Check a website',
         3 => 'Monitor server',
@@ -504,7 +501,6 @@ class _HomePageState extends State<TabBarPage> {
         7 => 'Find website addresses',
         8 => 'Find a device name',
         9 => 'Subnet calculator',
-        10 => 'Service Provider Details',
         _ => 'Settings',
       };
 
@@ -519,65 +515,6 @@ class _HomePageState extends State<TabBarPage> {
         7 => const DNSPage(),
         8 => const ReverseDNSPage(),
         9 => const SubnetCalculatorPage(),
-        10 => const _InternetServicePage(),
         _ => const SettingsPage(),
       };
-}
-
-class _InternetServicePage extends StatefulWidget {
-  const _InternetServicePage();
-
-  @override
-  State<_InternetServicePage> createState() => _InternetServicePageState();
-}
-
-class _InternetServicePageState extends State<_InternetServicePage> {
-  final SpeedTestDart _tester = SpeedTestDart();
-  final IspLookupService _ispLookupService = IspLookupService();
-  late final Future<Settings?> _settingsFuture = _loadSettings();
-
-  Future<Settings?> _loadSettings() async {
-    if (!appSettings.inAppInternet) return null;
-    final settings =
-        await _tester.getSettings(headers: {"User-Agent": "Mozilla/4.0"});
-    if (settings.client.isp.trim().isEmpty ||
-        settings.client.isp.toLowerCase() == 'unknown') {
-      final isp = await _ispLookupService.lookup(settings.client.ip);
-      if (isp != null) settings.client.isp = isp;
-    }
-    return settings;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!appSettings.inAppInternet) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Service Provider Details')),
-        body: const Center(
-          child: Text('Turn on internet access in Settings to continue.'),
-        ),
-      );
-    }
-    return FutureBuilder<Settings?>(
-      future: _settingsFuture,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('Service Provider Details')),
-            body: const Center(
-              child: Text('Provider details are currently unavailable.'),
-            ),
-          );
-        }
-        final settings = snapshot.data;
-        if (settings == null) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('Service Provider Details')),
-            body: const Center(child: CircularProgressIndicator()),
-          );
-        }
-        return IspPage(tester: _tester, settings: settings);
-      },
-    );
-  }
 }

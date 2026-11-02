@@ -3,7 +3,7 @@ description: A simple way to understand and check your internet connection
 
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
-version: 1.4.15+72
+version: 1.4.17+74
 
 environment:
   sdk: ">=3.2.0 <4.0.0"
@@ -21,6 +21,8 @@ dependencies:
   drift: ^2.35.3
   drift_flutter: ^0.3.1
   external_app_launcher: ^4.0.4
+  # Beautiful, interactive charts for Flutter. Lightweight and customizable.
+  fl_chart: ^0.69.0
   flutter:
     sdk: flutter
   # Bloc for state management, replace StatefulWidget
@@ -48,6 +50,7 @@ dependencies:
   in_app_review: ^2.0.12
   # Convenient code generator for get_it
   injectable: ^3.0.0
+  intl: any
   # An easy way to create a new isolate, keep it running and communicate with it.
   isolate_contactor: ^4.1.0
   # Discover network info and configure themselves accordingly
@@ -73,11 +76,6 @@ dependencies:
   sidebarx: ^0.17.2
   # Multiplatform safe UI Canvas Asset
   signal_strength_indicator: ^0.5.0
-  # Flutter package to test ping, upload, download using speedtest.net
-  speed_test_dart:
-    git:
-      url: https://github.com/git-elliot/speed_test_dart.git
-      ref: master # branch name
   # A little widget that given an Observable gives you an updated SpeedOMeter.
   speedometer: ^1.2.2
   sqlite3: ^3.8.0
@@ -93,6 +91,8 @@ dependencies:
   wifi_signal_strength_indicator: ^1.0.7
 
 dev_dependencies:
+  # Testing utilities for BLoC pattern
+  bloc_test: ^10.0.0
   # A build system for Dart code generation and modular compilation.
   build_runner: ^2.4.9
 
@@ -100,7 +100,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   # Code generator for unions/pattern-matching/copy.
-  freezed: ^4.0.2
+  freezed: ^4.0.1
   # Convenient code generator for get_it.
   injectable_generator: ^3.1.1
   integration_test:
@@ -110,7 +110,10 @@ dev_dependencies:
   lint: ^2.14.0
   mocktail: ^1.0.5
   msix: ^3.18.0
+  network_tools: any
 
+  plugin_platform_interface: any
+  url_launcher_platform_interface: any
 dependency_overrides:
   flutter_isolate:
     git:
