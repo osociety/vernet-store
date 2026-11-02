@@ -77,4 +77,4 @@ Use this when a PR (typically a "Sync fork" from `osociety/vernet` into `osociet
 |------|-----------|---------------|------------|
 | `ping_page.dart` | `InlineAdaptiveBanner` import + ad in list | `NetworkScoreBloc`/`NetworkScoreRepository` imports + `_savePingSnapshot` | Keep both imports, keep ad in list, keep `_savePingSnapshot` |
 | `pubspec.lock` | `webview_flutter*` packages | `webkit_inspection_protocol` | Keep all packages |
-| `isp_page_widget.dart` | Local modifications | File deleted | Keep local file |
+| `isp_page_widget.dart` | Local modifications | File deleted | Delete — upstream removed the entire ISP page feature; file is orphaned and broken |
