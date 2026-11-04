@@ -69,10 +69,7 @@ Follow GitHub's "Checkout via the command line" steps exactly:
    git push origin main
    ```
 
-8. **Close the PR on GitHub** (if still open)
-   ```
-   gh pr close <number> --comment "Merged manually via command line to resolve conflicts."
-   ```
+   Leave the sync PR open on GitHub — do not close it.
 
 ## Safety
 
