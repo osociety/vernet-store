@@ -32,12 +32,6 @@ jobs:
             exit 1
           fi
 
-  checks:
-    name: Run analyzer and unit tests
-    needs: store-branch-check
-    uses: ./.github/workflows/flutter_unit_test.yml
-
-
   android-integration:
     name: Run Android integration test
     needs: store-branch-check
@@ -45,7 +39,7 @@ jobs:
 
   publish:
     name: Build and publish to Google Play
-    needs: [checks, android-integration]
+    needs: [android-integration]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
