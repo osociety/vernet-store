@@ -10,19 +10,15 @@ Use this when a PR (typically a "Sync fork" from `osociety/vernet` into `osociet
 
 ## Procedure
 
-Follow GitHub's "Checkout via the command line" steps exactly:
-
-1. **Create temporary branch and pull upstream**
+1. **Fetch upstream changes**
    ```
-   git checkout -b osociety-main main
-   git pull https://github.com/osociety/vernet.git main
+   git fetch https://github.com/osociety/vernet.git main
    ```
    Do not add a permanent `upstream` remote unless the user asks.
 
-2. **Switch back to main and merge**
+2. **Merge upstream into main**
    ```
-   git checkout main
-   git merge --no-ff osociety-main
+   git merge --no-ff FETCH_HEAD
    ```
    If it succeeds cleanly, skip to step 5. If it fails with conflicts, proceed.
 
@@ -62,10 +58,9 @@ Follow GitHub's "Checkout via the command line" steps exactly:
    git add <resolved-files>
    ```
 
-7. **Complete the merge and cleanup**
+7. **Complete the merge**
    ```
    git commit --no-edit
-   git branch -d osociety-main
    git push origin main
    ```
 
@@ -73,6 +68,8 @@ Follow GitHub's "Checkout via the command line" steps exactly:
 
 ## Safety
 
+- **Never push to the parent repo** (`osociety/vernet`). Only push to the fork (`osociety/vernet-store`).
+- Pulling/fetching from the parent repo is fine — that's how we sync the fork.
 - Never use `--no-verify` or skip hooks.
 - Never force-push to `main`.
 - If a conflict is ambiguous (unclear which side to keep), ask the user before resolving.
