@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -47,7 +45,7 @@ void main() {
     testWidgets(
       'if settings for startup is on, then it should run',
       (tester) async {
-        await tester.pumpWidget(const MyApp(true));
+        await tester.pumpWidget(const MyApp(null));
         await tester.pumpAndSettle();
 
         await TestUtils.tapSettingsButton(tester, find);
@@ -72,7 +70,9 @@ void main() {
 
         await TestUtils.waitForAnyWidget(tester, startupScanStatus);
       },
-      skip: !(Platform.isAndroid || Platform.isIOS || Platform.isMacOS),
+      // The "Run on app startup" switch was removed from settings.
+      // TODO: Re-enable when the feature is restored or remove this test.
+      skip: true,
     );
   });
 }

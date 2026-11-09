@@ -75,7 +75,7 @@ void main() {
   group('Wake on LAN – navigation', () {
     testWidgets('tapping "Wake a device" button opens WakeOnLanPage',
         (tester) async {
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -92,7 +92,7 @@ void main() {
     });
 
     testWidgets('WakeOnLanPage shows all expected form fields', (tester) async {
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -112,7 +112,7 @@ void main() {
     });
 
     testWidgets('back navigation returns to HomePage', (tester) async {
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -135,7 +135,7 @@ void main() {
   group('Wake on LAN – broadcast pre-fill', () {
     testWidgets('broadcast IP field is auto-filled from gateway',
         (tester) async {
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -172,7 +172,7 @@ void main() {
   group('Wake on LAN – form validation', () {
     testWidgets('sending with empty MAC shows inline validation error',
         (tester) async {
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -196,7 +196,7 @@ void main() {
 
     testWidgets('saving with empty MAC shows inline validation error',
         (tester) async {
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -219,7 +219,7 @@ void main() {
 
     testWidgets('port field shows error for out-of-range value',
         (tester) async {
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -255,7 +255,7 @@ void main() {
 
   group('Wake on LAN – sending', () {
     testWidgets('valid MAC + IP shows success status', (tester) async {
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -315,7 +315,7 @@ void main() {
 
     testWidgets('Send button is disabled while a packet is in-flight',
         (tester) async {
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -340,8 +340,13 @@ void main() {
         find,
       );
 
-      // Tap send but don't settle – check the button label mid-flight
-      await tester.tap(find.byKey(WidgetKey.wakeOnLanSendButton.key));
+      // Tap send but don't settle – check the button label mid-flight.
+      // The keyboard is up after entering text, so the button may sit
+      // below the shrunken viewport and need scrolling into view first.
+      final sendButton = find.byKey(WidgetKey.wakeOnLanSendButton.key);
+      await tester.ensureVisible(sendButton);
+      await tester.pump();
+      await tester.tap(sendButton);
       await tester.pump(); // single frame
       await tester.pump(const Duration(milliseconds: 50));
 
@@ -355,7 +360,7 @@ void main() {
   group('Wake on LAN – saved devices', () {
     testWidgets('empty-state placeholder visible when no devices saved',
         (tester) async {
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -375,7 +380,7 @@ void main() {
 
     testWidgets('saved device appears in list after tapping Save',
         (tester) async {
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -431,7 +436,7 @@ void main() {
             '[{"label":"Home Server","macAddress":"AA:BB:CC:DD:EE:FF","ipv4Address":"192.168.0.255","port":9,"password":""}]',
       });
 
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -461,7 +466,7 @@ void main() {
             '[{"label":"Old PC","macAddress":"AA:BB:CC:DD:EE:FF","ipv4Address":"255.255.255.255","port":9,"password":""}]',
       });
 
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -490,7 +495,7 @@ void main() {
 
     testWidgets('saving same MAC twice replaces and does not duplicate',
         (tester) async {
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
@@ -555,7 +560,7 @@ void main() {
             '[{"label":"NAS","macAddress":"AA:BB:CC:DD:EE:FF","ipv4Address":"255.255.255.255","port":9,"password":""}]',
       });
 
-      await tester.pumpWidget(const MyApp(true));
+      await tester.pumpWidget(const MyApp(null));
       await tester.pumpAndSettle();
 
       await TestUtils.scrollUntilVisibleByWidgetKey(
