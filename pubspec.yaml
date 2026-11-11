@@ -3,14 +3,14 @@ description: A simple way to understand and check your internet connection
 
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
-version: 1.5.0+78
+version: 1.6.0+79
 
 environment:
   sdk: ">=3.2.0 <4.0.0"
 
 dependencies:
   # Helps launch Android intents for opening system settings
-  android_intent_plus: ^5.2.1
+  android_intent_plus: ^6.1.0
   # Helps implement the BLoC pattern.
   bloc: ^9.2.1
   dart_ping: ^10.0.1
@@ -25,7 +25,7 @@ dependencies:
   # Bloc for state management, replace StatefulWidget
   flutter_bloc: ^9.1.1
   # A cross platform plugin for displaying local notifications.
-  flutter_local_notifications: ^22.3.2
+  flutter_local_notifications: ^23.0.0
   # Native splash screen plugin
   flutter_native_splash: ^2.4.8
   # A flutter plugin for getting the local timezone of the OS.
@@ -91,7 +91,10 @@ dev_dependencies:
   lint: ^2.14.0
   mocktail: ^1.0.5
   msix: ^3.18.0
-  network_tools: ^6.0.15
+  # Pinned: 6.0.18 carries the longest-prefix MAC vendor table that
+  # ActiveHost.vendor resolves against. Not 6.0.17, whose published archive
+  # ships an empty vendor stub (osociety/network_tools#305).
+  network_tools: 6.0.18
 
   plugin_platform_interface: any
   url_launcher_platform_interface: any
