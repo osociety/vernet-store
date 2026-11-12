@@ -72,6 +72,16 @@ void main() {
       },
     );
 
+    // flutter_test reports TargetPlatform.android, so mounting HostScanPage
+    // builds its inline banner and lets it reach the ads channel. The channel
+    // answers with its own codec, so only the bytes are stubbed here.
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMessageHandler(
+      'plugins.flutter.io/google_mobile_ads',
+      (ByteData? message) async =>
+          const StandardMethodCodec().encodeSuccessEnvelope(null),
+    );
+
     scanner = _FakeScannerService();
     getIt.registerSingleton<DeviceScannerService>(scanner);
     bloc = HostScanBloc();
