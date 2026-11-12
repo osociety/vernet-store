@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:network_info_plus_platform_interface/network_info_plus_platform_interface.dart';
 import 'package:network_tools_flutter/network_tools_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -45,6 +47,47 @@ class _FakeScannerService implements DeviceScannerService {
 
   @override
   Future<int> getCurrentDevicesCount() async => devices.length;
+}
+
+/// A notification platform that refuses the post, which is what the beta hit
+/// when the OS rejected the scan-complete alert. Every other plugin call is
+/// unexpected, so it surfaces instead of silently succeeding.
+class _RefusingNotificationPlugin implements FlutterLocalNotificationsPlugin {
+  int showCalls = 0;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    if (invocation.memberName == #show) {
+      showCalls++;
+      throw Exception('notification channel unavailable');
+    }
+    return super.noSuchMethod(invocation);
+  }
+}
+
+/// Answers the Wi-Fi queries the dashboard needs before it enables its scan
+/// button.
+///
+/// The `dev.fluttercommunity.plus/network_info` mock installed by `setUp` only
+/// reaches Android, iOS and macOS: on Linux and Windows network_info_plus
+/// registers a pure-Dart implementation that never touches the channel, so a
+/// runner without Wi-Fi leaves the button disabled and a tap on it does
+/// nothing. Setting the platform instance gives every leg the same state.
+class _StubNetworkInfoPlatform extends NetworkInfoPlatform {
+  @override
+  Future<String?> getWifiIP() async => '192.168.1.10';
+
+  @override
+  Future<String?> getWifiBSSID() async => '00:11:22:33:44:55';
+
+  @override
+  Future<String?> getWifiName() async => 'Mock WiFi';
+
+  @override
+  Future<String?> getWifiGatewayIP() async => '192.168.1.1';
+
+  @override
+  Future<String?> getWifiSubmask() async => '255.255.255.0';
 }
 
 /// Swaps the real scanner for a fake so a test does not depend on the network
@@ -192,10 +235,89 @@ void main() {
 
       expect(find.byType(HostScanPage), findsOneWidget);
 
+      // The page must leave its scanning state, not just persist the results:
+      // the stranded screen the beta reported looked identical apart from the
+      // header wording and the missing rescan button.
       await TestUtils.waitForAnyWidget(
         tester,
         find.text('Scan complete - 1 device found'),
       );
+      expect(
+        find.byKey(WidgetKey.rescanIconButton.key),
+        findsOneWidget,
+        reason: 'the page should offer rescan once the scan finishes',
+      );
+      expect(fakeScanner.startCalls, 1);
+    });
+
+    testWidgets('a refused completion alert does not strand the scan',
+        (tester) async {
+      // The notification plugin is the one thing that can fail after the
+      // results are already stored, so drive it with a platform that refuses
+      // the show and confirm the screen still settles on the results.
+      final fakeScanner = await _installFakeScanner([
+        const DeviceData(
+          id: 1,
+          internetAddress: '192.168.1.42',
+          macAddress: 'AA:BB:CC:DD:EE:FF',
+          hostMake: 'Test host',
+          currentDeviceIp: '192.168.1.10',
+          gatewayIp: '192.168.1.1',
+          scanId: 0,
+        ),
+      ]);
+      final originalPlugin =
+          NotificationService.flutterLocalNotificationsPlugin;
+      final originalTestingFlag = globals.testingActive;
+      final originalIgnorePlatformCheck =
+          NotificationService.debugIgnorePlatformCheck;
+      final originalNetworkInfo = NetworkInfoPlatform.instance;
+      final plugin = _RefusingNotificationPlugin();
+      NotificationService.flutterLocalNotificationsPlugin = plugin;
+      NetworkInfoPlatform.instance = _StubNetworkInfoPlatform();
+      // Testing mode returns before the plugin is reached, and Windows skips
+      // the alert by design outside this test, so both flags have to be
+      // cleared for the refusal to be exercised. Nothing here depends on the
+      // other testing-mode branches: the scanner is faked and the channel
+      // mocks are installed by setUp.
+      globals.testingActive = false;
+      NotificationService.debugIgnorePlatformCheck = true;
+      addTearDown(() {
+        globals.testingActive = originalTestingFlag;
+        NotificationService.debugIgnorePlatformCheck =
+            originalIgnorePlatformCheck;
+        NetworkInfoPlatform.instance = originalNetworkInfo;
+        NotificationService.flutterLocalNotificationsPlugin = originalPlugin;
+      });
+
+      await tester.pumpWidget(const MyApp(null));
+      // An indeterminate progress indicator replaces the test-mode placeholder
+      // once testingActive is cleared, so pump fixed frames instead of settling.
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      final devicesButton = find.byKey(WidgetKey.scanForDevicesButton.key);
+      await TestUtils.waitForWidget(tester, devicesButton);
+      await tester.ensureVisible(devicesButton);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(devicesButton);
+      await TestUtils.waitForWidget(tester, find.text('Find devices'));
+
+      await TestUtils.waitForAnyWidget(
+        tester,
+        find.text('Scan complete - 1 device found'),
+      );
+      expect(
+        find.byKey(WidgetKey.rescanIconButton.key),
+        findsOneWidget,
+        reason: 'a refused alert must not leave the page on its scanning state',
+      );
+      // The alert is attempted only once the screen has settled on results.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 200)),
+      );
+      expect(plugin.showCalls, 1, reason: 'the alert must still be attempted');
       expect(fakeScanner.startCalls, 1);
     });
 
